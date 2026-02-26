@@ -1,77 +1,109 @@
 import customtkinter as ctk
-from ui.styles import * # 우리가 만든 디자인 가이드를 가져옵니다.
+from ui.styles import *
+import re
 
 class DayCard(ctk.CTkFrame):
-    """
-    [클래스 역할] 30일 중 '하루'를 나타내는 개별 카드 컴포넌트입니다.
-    이 클래스는 붕어빵 틀처럼 작동하여, 데이터만 주면 카드를 찍어냅니다.
-    """
-    def __init__(self, master, day_data, on_click_callback):
-        # master: 이 카드가 놓일 부모 위젯(스크롤 프레임)입니다.
-        # day_data: JSON에서 가져온 해당 날짜의 정보(딕셔너리)입니다.
-        # on_click_callback: 완료 버튼을 눌렀을 때 실행할 함수(manager와 연결됨)입니다.
-        
-        # 1. 프레임 초기화 (카드 테두리와 배경 설정)
-        # ctk.CTkFrame 상속: 이 클래스 자체가 하나의 프레임(상자)이 됩니다.
-        super().__init__(
-            master, 
-            corner_radius=CARD_CORNER,  # styles.py에서 정의한 둥근 모서리
-            fg_color=COLOR_CARD_COMPLETE if day_data["status"] == "Completed" else COLOR_CARD_PENDING
-        )
+    def __init__(self, master, day_data, on_complete_callback, on_start_callback):
+        super().__init__(master, corner_radius=CARD_CORNER)
         
         self.day_data = day_data
-        self.day_num = day_data["day"]
+        self.is_expanded = False
+        self.checkboxes = []
+        
+        # 전체 카드 배경 설정
+        self.refresh_bg()
 
-        # 2. 내부 레이아웃 설정 (그리드 방식)
-        self.grid_columnconfigure(1, weight=1)  # 중앙 제목 영역이 넓게 퍼지도록 설정
+        # [핵심 수정] 1. 헤더 프레임 (클릭 영역)
+        self.header_frame = ctk.CTkFrame(self, fg_color="transparent", cursor="hand2")
+        self.header_frame.pack(fill="x", padx=15, pady=10)
+        
+        # [Day 번호]
+        self.lbl_day = ctk.CTkLabel(self.header_frame, text=f"Day {day_data['day']:02d}", 
+                                    font=FONT_DAY_NUM, text_color=COLOR_MAIN_GREEN[0])
+        self.lbl_day.pack(side="left", padx=(0, 15))
 
-        # [Day 번호 표시] - 왼쪽
-        self.lbl_day = ctk.CTkLabel(
-            self, 
-            text=f"Day {self.day_num:02d}", 
-            font=FONT_DAY_NUM,
-            text_color=COLOR_MAIN_GREEN[0] if day_data["status"] == "Completed" else COLOR_TEXT_SUB[0]
+        # [제목]
+        self.lbl_title = ctk.CTkLabel(self.header_frame, text=day_data["title"], 
+                                      font=FONT_CONTENT, text_color=COLOR_TEXT_MAIN[0])
+        self.lbl_title.pack(side="left")
+
+        # ---------------------------------------------------------
+        # [강력 조치] 모든 요소에 클릭 이벤트 바인딩 (글자를 눌러도 실행되게)
+        # ---------------------------------------------------------
+        click_func = lambda e: self.toggle_expand(on_start_callback)
+        
+        self.bind("<Button-1>", click_func)             # 카드 몸체 클릭
+        self.header_frame.bind("<Button-1>", click_func) # 헤더 영역 클릭
+        self.lbl_day.bind("<Button-1>", click_func)      # Day 숫자 클릭
+        self.lbl_title.bind("<Button-1>", click_func)    # 제목 텍스트 클릭
+
+        # 2. 상세 영역 (초기 숨김)
+        self.detail_frame = ctk.CTkFrame(self, fg_color="transparent")
+
+        # 3. 체크박스 동적 생성
+        # [수정된 로직] 괄호 안의 콤마는 보호하고 바깥의 콤마/마침표로만 분리
+        raw_detail = day_data.get("detail", "")
+        
+        # 정규표현식 설명: 
+        # [.,] : 마침표나 콤마를 찾는데,
+        # (?![^(]*\)) : 뒤에 닫는 괄호 ')'는 있고 여는 괄호 '('는 없는 상황(즉, 괄호 안)이 아닐 때만!
+        items = re.split(r'[.,](?![^(]*\))', raw_detail)
+        
+        items = [i.strip() for i in items if i.strip()]
+        for item_text in items:
+            cb = ctk.CTkCheckBox(
+                self.detail_frame, text=item_text, font=FONT_DETAIL,
+                checkmark_color="white", fg_color=COLOR_CHECKBOX[0],
+                command=self.check_all_done
+            )
+            cb.pack(fill="x", padx=40, pady=5, anchor="w")
+            self.checkboxes.append(cb)
+
+        # 4. 완료 버튼
+        self.btn_complete = ctk.CTkButton(
+            self.detail_frame, text="오늘의 챌린지 완료!", font=FONT_CONTENT,
+            fg_color=COLOR_MAIN_GREEN[0], state="disabled",
+            command=lambda: on_complete_callback(day_data["day"])
         )
-        self.lbl_day.grid(row=0, column=0, padx=20, pady=20)
+        self.btn_complete.pack(pady=(15, 15), padx=40, fill="x")
 
-        # [제목 및 상세 설명] - 중앙
-        self.info_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.info_frame.grid(row=0, column=1, sticky="w")
+        # 완료 상태 처리
+        if day_data["status"] == "Completed":
+            for cb in self.checkboxes:
+                cb.select()
+                cb.configure(state="disabled")
+            self.btn_complete.configure(state="disabled", text="완료된 챌린지")
 
-        self.lbl_title = ctk.CTkLabel(
-            self.info_frame, 
-            text=day_data["title"], 
-            font=FONT_CONTENT,
-            text_color=COLOR_TEXT_MAIN[0]
-        )
-        self.lbl_title.pack(anchor="w")
+    def toggle_expand(self, on_start_callback):
+        """디버깅 메시지를 포함한 토글 함수"""
+        print(f"DEBUG: Day {self.day_data['day']} 카드 클릭됨!") # 클릭 확인용
+        
+        if self.is_expanded:
+            self.detail_frame.pack_forget()
+        else:
+            # header_frame 아래에 배치
+            self.detail_frame.pack(fill="x", padx=20, pady=(0, 10))
+            on_start_callback(self.day_data["day"])
+        
+        self.is_expanded = not self.is_expanded
 
-        self.lbl_detail = ctk.CTkLabel(
-            self.info_frame, 
-            text=day_data["detail"], 
-            font=FONT_DETAIL,
-            text_color=COLOR_TEXT_SUB[0],
-            wraplength=300  # 글자가 길어지면 자동으로 줄바꿈
-        )
-        self.lbl_detail.pack(anchor="w")
+    def check_all_done(self):
+        all_checked = all(cb.get() for cb in self.checkboxes)
+        if all_checked and self.day_data["status"] != "Completed":
+            self.btn_complete.configure(state="normal")
+        else:
+            self.btn_complete.configure(state="disabled")
 
-        # [완료 버튼] - 오른쪽
-        btn_text = "완료됨" if day_data["status"] == "Completed" else "완료하기"
-        btn_state = "disabled" if day_data["status"] == "Completed" else "normal"
-        btn_color = COLOR_DARK_GREEN if day_data["status"] == "Completed" else COLOR_MAIN_GREEN
+    def refresh_bg(self):
+        bg = COLOR_CARD_COMPLETE if self.day_data["status"] == "Completed" else COLOR_CARD_PENDING
+        self.configure(fg_color=bg)
 
-        self.btn_clear = ctk.CTkButton(
-            self, 
-            text=btn_text,
-            width=80,
-            height=32,
-            corner_radius=BUTTON_CORNER,
-            fg_color=btn_color,
-            state=btn_state,
-            command=lambda: on_click_callback(self.day_num) # 버튼 클릭 시 실행될 함수
-        )
-        self.btn_clear.grid(row=0, column=2, padx=20)
-
+class PhaseHeader(ctk.CTkFrame):
+    """[신규] 주차 구분을 위한 헤더 컴포넌트"""
+    def __init__(self, master, phase_name):
+        super().__init__(master, fg_color=COLOR_PHASE_BG, corner_radius=8)
+        self.lbl = ctk.CTkLabel(self, text=f"📂 {phase_name}", font=FONT_PHASE, text_color=COLOR_TEXT_MAIN[0])
+        self.lbl.pack(pady=8)
 class TopDashboard(ctk.CTkFrame):
     """
     [클래스 역할] 앱 상단에 고정되어 전체 진척도와 스트릭을 보여주는 대시보드입니다.

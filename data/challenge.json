@@ -14,7 +14,7 @@
             "phase": "1단계: 문법 압축 및 파이써닉 교정",
             "title": "파이써닉 표현",
             "detail": "List/Dict Comprehension, Lambda, Map/Filter, 삼항 연산자를 활용한 코드 압축",
-            "status": "Pending"
+            "status": "Completed"
         },
         {
             "day": 3,
